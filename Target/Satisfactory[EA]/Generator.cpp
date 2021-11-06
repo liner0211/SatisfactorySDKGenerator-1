@@ -1,5 +1,3 @@
-#include "IGenerator.hpp"
-#include "ObjectsStore.hpp"
 #include "NamesStore.hpp"
 
 class Generator : public IGenerator
@@ -12,20 +10,17 @@ public:
 			{ "ScriptStruct CoreUObject.Quat", 16 },
 			{ "ScriptStruct CoreUObject.Transform", 16 },
 			{ "ScriptStruct CoreUObject.Vector4", 16 },
-
 			{ "ScriptStruct Engine.RootMotionSourceGroup", 8 }
 		};
 
-		overrideTypes = { };
-
 		virtualFunctionPattern["Class CoreUObject.Object"] = {
-			{ "\x48\x89\x85\x00\x00\x00\x00\x8B\x41\x08\x33\xFF", "xxx????xxxxx", 0x200, R"(	inline void ProcessEvent(class UFunction* function, void* parms)
+			{ "\x44\x88\x7D\x00\x48\x89", "xxxxxx", 0x400, R"(	inline void ProcessEvent(class UFunction* function, void* parms)
 	{
 		return GetVFunction<void(*)(UObject*, class UFunction*, void*)>(this, %d)(this, function, parms);
 	})" }
 		};
 		virtualFunctionPattern["Class CoreUObject.Class"] = {
-			{ "\x4C\x8B\xDC\x57\x48\x81\xEC", "xxxxxxx", 0x200, R"(	UObject* CreateDefaultObject()
+			{ "\x4C\x8B\xDC\x57\x48\x81\xEC", "xxxxxxx", 0x200, R"(	inline UObject* CreateDefaultObject()
 	{
 		return GetVFunction<UObject*(*)(UClass*)>(this, %d)(this);
 	})" }
@@ -33,7 +28,7 @@ public:
 
 		predefinedMembers["Class CoreUObject.Object"] = {
 			{ "void*", "Vtable" },
-			{ "uint32_t", "ObjectFlags" },
+			{ "int32_t", "ObjectFlags" },
 			{ "int32_t", "InternalIndex" },
 			{ "class UClass*", "Class" },
 			{ "FName", "Name" },
@@ -46,38 +41,39 @@ public:
 			{ "class UField*", "Next" }
 		};
 		predefinedMembers["Class CoreUObject.Struct"] = {
+			{ "char", "UnknownData00[0x10]"},
 			{ "class UStruct*", "SuperField" },
 			{ "class UField*", "Children" },
 			{ "int32_t", "PropertySize" },
 			{ "int32_t", "MinAlignment" },
-			{ "unsigned char", "UnknownData00[0x48]" }
+			{ "char", "UnknownData01[0x40]"}
 		};
 		predefinedMembers["Class CoreUObject.Function"] = {
-			{ "uint32_t", "FunctionFlags" },
-			{ "uint16_t", "RepOffset" },
-			{ "uint8_t", "NumParms" },
-			{ "uint16_t", "ParmsSize" },
-			{ "uint16_t", "ReturnValueOffset" },
-			{ "uint16_t", "RPCId" },
-			{ "uint16_t", "RPCResponseId" },
+			{ "int32_t", "FunctionFlags" },
+			{ "int8_t", "NumParms" },
+			{ "char", "UnknownData[0x1]"},
+			{ "int16_t", "ParmsSize" },
+			{ "int16_t", "ReturnValueOffset" },
+			{ "int16_t", "RPCId" },
+			{ "int16_t", "RPCResponseId" },
 			{ "class UProperty*", "FirstPropertyToInit" },
 			{ "void*", "Func" }
 		};
 
 		predefinedMethods["ScriptStruct CoreUObject.Vector2D"] = {
-			PredefinedMethod::Inline(R"(	FVector2D()
+			PredefinedMethod::Inline(R"(	inline FVector2D()
 		: X(0), Y(0)
 	{ })"),
-			PredefinedMethod::Inline(R"(	FVector2D(float x, float y)
+			PredefinedMethod::Inline(R"(	inline FVector2D(float x, float y)
 		: X(x),
 		  Y(y)
 	{ })")
 		};
 		predefinedMethods["ScriptStruct CoreUObject.LinearColor"] = {
-			PredefinedMethod::Inline(R"(	FLinearColor()
+			PredefinedMethod::Inline(R"(	inline FLinearColor()
 		: R(0), G(0), B(0), A(0)
 	{ })"),
-			PredefinedMethod::Inline(R"(	FLinearColor(float r, float g, float b, float a)
+			PredefinedMethod::Inline(R"(	inline FLinearColor(float r, float g, float b, float a)
 		: R(r),
 		  G(g),
 		  B(b),
@@ -86,7 +82,7 @@ public:
 		};
 
 		predefinedMethods["Class CoreUObject.Object"] = {
-			PredefinedMethod::Inline(R"(	static inline TArray<UObject*>& UObject::GetGlobalObjects()
+			PredefinedMethod::Inline(R"(	static inline FChunkedFixedUObjectArray& GetGlobalObjects()
 	{
 		return GObjects->ObjObjects;
 	})"),
@@ -103,7 +99,7 @@ public:
 	{
 		return name;
 	}
-	
+
 	return name.substr(pos + 1);
 })"),
 			PredefinedMethod::Default("std::string GetFullName() const", R"(std::string UObject::GetFullName() const
@@ -129,15 +125,15 @@ public:
 			PredefinedMethod::Inline(R"(	template<typename T>
 	static T* FindObject(const std::string& name)
 	{
-		for (auto i = 0u; i < GetGlobalObjects().Num(); ++i)
+		for (int i = 0; i < GetGlobalObjects().Num(); ++i)
 		{
-			auto object = GetGlobalObjects().GetByIndex(i);
-	
+			auto object = GetGlobalObjects().GetByIndex(i).Object;
+
 			if (object == nullptr)
 			{
 				continue;
 			}
-	
+
 			if (object->GetFullName() == name)
 			{
 				return static_cast<T*>(object);
@@ -152,7 +148,7 @@ public:
 			PredefinedMethod::Inline(R"(	template<typename T>
 	static T* GetObjectCasted(std::size_t index)
 	{
-		return static_cast<T*>(GetGlobalObjects().GetByIndex(index));
+		return static_cast<T*>(GetGlobalObjects().GetByIndex(index).Object);
 	})"),
 			PredefinedMethod::Default("bool IsA(UClass* cmp) const", R"(bool UObject::IsA(UClass* cmp) const
 {
@@ -169,10 +165,18 @@ public:
 		};
 		predefinedMethods["Class CoreUObject.Class"] = {
 			PredefinedMethod::Inline(R"(	template<typename T>
-	T* CreateDefaultObject()
+	inline T* CreateDefaultObject()
 	{
 		return static_cast<T*>(CreateDefaultObject());
 	})")
+		};
+
+		predefinedMethods["Class Engine.World"] = {
+			PredefinedMethod::Inline(R"(	static UWorld** GWorld;
+	static inline UWorld* GetWorld()
+	{
+		return *GWorld;
+	};)")
 		};
 
 		return true;
@@ -180,27 +184,32 @@ public:
 
 	std::string GetGameName() const override
 	{
-		return "ARK: Survival Evolved";
+		return "Satisfactory";
 	}
 
 	std::string GetGameNameShort() const override
 	{
-		return "ARK";
+		return "FG";
 	}
 
 	std::string GetGameVersion() const override
 	{
-		return "253.98";
+		return "V1.0";
 	}
 
 	std::string GetNamespaceName() const override
 	{
-		return "Classes";
+		return "SDK";
 	}
 
 	std::vector<std::string> GetIncludes() const override
 	{
 		return { };
+	}
+
+	std::string GetOutputDirectory() const
+	{
+		return "C:/SDK_GEN"; //TODO: add a feature so users can customize this
 	}
 
 	std::string GetBasicDeclarations() const override
@@ -212,12 +221,10 @@ inline Fn GetVFunction(const void *instance, std::size_t index)
 	return reinterpret_cast<Fn>(vtable[index]);
 }
 
-struct FString;
-
 template<class T>
-struct TArray
+class TArray
 {
-	friend struct FString;
+	friend class FString;
 
 public:
 	inline TArray()
@@ -226,7 +233,7 @@ public:
 		Count = Max = 0;
 	};
 
-	inline size_t Num() const
+	inline int Num() const
 	{
 		return Count;
 	};
@@ -246,73 +253,71 @@ public:
 		return i < Num();
 	}
 
-	inline T& GetByIndex(size_t i)
-	{
-		return Data[i];
-	}
-
-	inline const T& GetByIndex(size_t i) const
-	{
-		return Data[i];
-	}
-
-	void Add(T InputData)
-	{
-		Data = (T*)realloc(Data, sizeof(T) * (Count + 1));
-		Data[Count++] = InputData;
-		Max = Count;
-	};
-
-	void Clear()
-	{
-		free(Data);
-		Count = Max = 0;
-	};
-
 private:
 	T* Data;
-	int32_t Count;
-	int32_t Max;
+	int Count;
+	int Max;
 };
 
 class UObject;
 
+class FUObjectItem
+{
+public:
+	UObject* Object;
+	int Flags;
+	int ClusterRootIndex;
+	int SerialNumber;
+};
+
+class FChunkedFixedUObjectArray
+{
+public:
+	inline int Num() const
+	{
+		return NumElements;
+	}
+
+	enum
+	{
+		NumElementsPerChunk = 64 * 1024,
+	};
+
+	inline FUObjectItem const* GetObjectPtr(int Index) const
+	{
+		auto ChunkIndex = Index / NumElementsPerChunk;
+		auto WithinChunkIndex = Index % NumElementsPerChunk;
+		auto Chunk = Objects[ChunkIndex];
+		return Chunk + WithinChunkIndex;
+	}
+
+	inline FUObjectItem const& GetByIndex(int Index) const
+	{
+		return *GetObjectPtr(Index);
+	}
+
+private:
+	FUObjectItem** Objects;
+	FUObjectItem* PreAllocatedObjects;
+	int MaxElements;
+	int NumElements;
+	int MaxChunks;
+	int NumChunks;
+};
+
 class FUObjectArray
 {
 public:
-	int32_t ObjFirstGCIndex;
-	int32_t ObjLastNonGCIndex;
-	int32_t OpenForDisregardForGC;
-
-	TArray<UObject*> ObjObjects;
-	TArray<int32_t> ObjAvailable;
+	int ObjFirstGCIndex;
+	int ObjLastNonGCIndex;
+	int MaxObjectsNotConsideredByGC;
+	bool OpenForDisregardForGC;
+	FChunkedFixedUObjectArray ObjObjects;
 };
 
 class FNameEntry
 {
 public:
-	static const auto NAME_WIDE_MASK = 0x1;
-	static const auto NAME_INDEX_SHIFT = 1;
-
-	int32_t Index;
-	char UnknownData00[0x04];
-	FNameEntry* HashNext;
-	union
-	{
-		char AnsiName[1024];
-		wchar_t WideName[1024];
-	};
-
-	inline const int32_t GetIndex() const
-	{
-		return Index >> NAME_INDEX_SHIFT;
-	}
-
-	inline bool IsWide() const
-	{
-		return Index & NAME_WIDE_MASK;
-	}
-
 	inline const char* GetAnsiName() const
 	{
 		return AnsiName;
@@ -322,61 +327,59 @@ public:
 	{
 		return WideName;
 	}
+
+private:
+	FNameEntry* HashNext;
+	int Index;
+
+	union
+	{
+		char AnsiName[1024];
+		wchar_t WideName[1024];
+	};
 };
 
-template<typename ElementType, int32_t MaxTotalElements, int32_t ElementsPerChunk>
-class TStaticIndirectArrayThreadSafeRead
+class TNameEntryArray
 {
 public:
-	inline size_t Num() const
+	inline int Num() const
 	{
 		return NumElements;
 	}
 
-	inline bool IsValidIndex(int32_t index) const
+	inline bool IsValidIndex(int Index) const
 	{
-		return index < Num() && index >= 0;
+		return Index < Num() && Index >= 0;
 	}
 
-	inline ElementType const* const& operator[](int32_t index) const
+	inline FNameEntry const* const& operator[](int Index) const
 	{
-		return *GetItemPtr(index);
+		return *GetItemPtr(Index);
 	}
 
 private:
-	ElementType const* const* GetItemPtr(int32_t Index) const
+	enum {
+		ElementsPerChunk = 16 * 1024,
+		ChunkTableSize = (4 * 1024 * 1024 + ElementsPerChunk - 1) / ElementsPerChunk
+	};
+
+	inline FNameEntry const* const* GetItemPtr(int Index) const
 	{
-		int32_t ChunkIndex = Index / ElementsPerChunk;
-		int32_t WithinChunkIndex = Index % ElementsPerChunk;
-		ElementType** Chunk = Chunks[ChunkIndex];
+		const auto ChunkIndex = Index / ElementsPerChunk;
+		const auto WithinChunkIndex = Index % ElementsPerChunk;
+		const auto Chunk = Chunks[ChunkIndex];
 		return Chunk + WithinChunkIndex;
 	}
 
-	enum
-	{
-		ChunkTableSize = (MaxTotalElements + ElementsPerChunk - 1) / ElementsPerChunk
-	};
-
-	ElementType** Chunks[ChunkTableSize];
-	int32_t NumElements;
-	int32_t NumChunks;
+	FNameEntry** Chunks[ChunkTableSize];
+	int NumElements;
+	int NumChunks;
 };
-
-using TNameEntryArray = TStaticIndirectArrayThreadSafeRead<FNameEntry, 2 * 1024 * 1024, 16384>;
 
 struct FName
 {
-	union
-	{
-		struct
-		{
-			int32_t ComparisonIndex;
-			int32_t Number;
-		};
-
-		// DO NOT REMOVE: needed for memory alignment!
-		uint64_t CompositeComparisonValue;
-	};
+	int ComparisonIndex;
+	int Number;
 
 	inline FName()
 		: ComparisonIndex(0),
@@ -384,7 +387,7 @@ struct FName
 	{
 	};
 
-	inline FName(int32_t i)
+	inline FName(int i)
 		: ComparisonIndex(i),
 		  Number(0)
 	{
@@ -394,19 +397,19 @@ struct FName
 		: ComparisonIndex(0),
 		  Number(0)
 	{
-		static std::set<size_t> cache;
+		static std::unordered_set<int> cache;
 
 		for (auto i : cache)
 		{
 			if (!std::strcmp(GetGlobalNames()[i]->GetAnsiName(), nameToFind))
 			{
 				ComparisonIndex = i;
-				
+
 				return;
 			}
 		}
 
-		for (auto i = 0u; i < GetGlobalNames().Num(); ++i)
+		for (auto i = 0; i < GetGlobalNames().Num(); ++i)
 		{
 			if (GetGlobalNames()[i] != nullptr)
 			{
@@ -423,7 +426,7 @@ struct FName
 	};
 
 	static TNameEntryArray *GNames;
-	inline static TNameEntryArray& GetGlobalNames()
+	static inline TNameEntryArray& GetGlobalNames()
 	{
 		return *GNames;
 	};
@@ -439,15 +442,16 @@ struct FName
 	};
 };
 
-struct FString : private TArray<wchar_t>
+class FString : public TArray<wchar_t>
 {
+public:
 	inline FString()
 	{
 	};
 
 	FString(const wchar_t* other)
 	{
-		Max = Count = *other ? std::wcslen(other) + 1 : 0;
+		Max = Count = *other ? static_cast<int32_t>(std::wcslen(other)) + 1 : 0;
 
 		if (Count)
 		{
@@ -467,7 +471,7 @@ struct FString : private TArray<wchar_t>
 
 	std::string ToString() const
 	{
-		auto length = std::wcslen(Data);
+		const auto length = std::wcslen(Data);
 
 		std::string str(length, '\0');
 
@@ -557,19 +561,33 @@ public:
 	}
 };
 
-struct FText
-{
+class FTextData {
+public:
 	char UnknownData[0x28];
+	wchar_t* Name;
+	__int32 Length;
+};
+
+struct FText {
+	FTextData* Data;
+	char UnknownData[0x10];
+
+	wchar_t* Get() const {
+		if (Data)
+			return Data->Name;
+
+		return nullptr;
+	}
 };
 
 struct FScriptDelegate
 {
-	char UnknownData[20];
+	char UnknownData[0x14];
 };
 
 struct FScriptMulticastDelegate
 {
-	char UnknownData[16];
+	char UnknownData[0x10];
 };
 
 template<typename Key, typename Value>
@@ -593,22 +611,22 @@ template<class T, class TWeakObjectPtrBase = FWeakObjectPtr>
 struct TWeakObjectPtr : private TWeakObjectPtrBase
 {
 public:
-	T* Get() const
+	inline T* Get() const
 	{
 		return (T*)TWeakObjectPtrBase::Get();
 	}
 
-	T& operator*() const
+	inline T& operator*() const
 	{
 		return *Get();
 	}
 
-	T* operator->() const
+	inline T* operator->() const
 	{
 		return Get();
 	}
 
-	bool IsValid() const
+	inline bool IsValid() const
 	{
 		return TWeakObjectPtrBase::IsValid();
 	}
@@ -622,12 +640,13 @@ public:
 	{
 		return TBASE::Get();
 	}
+
 	inline operator const T*() const
 	{
 		return (const T*)TBASE::Get();
 	}
 
-	explicit inline  operator bool() const
+	explicit inline operator bool() const
 	{
 		return TBASE::Get() != nullptr;
 	}
@@ -664,6 +683,23 @@ class TAssetPtr : FAssetPtr
 
 };
 
+struct FSoftObjectPath
+{
+	FName AssetPathName;
+	FString SubPathString;
+};
+
+class FSoftObjectPtr : public TPersistentObjectPtr<FSoftObjectPath>
+{
+
+};
+
+template<typename ObjectType>
+class TSoftObjectPtr : FSoftObjectPtr
+{
+
+};
+
 struct FUniqueObjectGuid_
 {
 	char UnknownData[0x10];
@@ -678,6 +714,24 @@ template<typename ObjectType>
 class TLazyObjectPtr : FLazyObjectPtr
 {
 
+};
+
+class UClass;
+
+template<class TClass>
+class TSubclassOf
+{
+public:
+	TSubclassOf(UClass* Class) {
+		this->Class = Class;
+	}
+
+	inline UClass* GetClass()
+	{
+		return Class;
+	}
+private:
+	UClass* Class;
 };)";
 	}
 
@@ -685,33 +739,7 @@ class TLazyObjectPtr : FLazyObjectPtr
 	{
 		return R"(TNameEntryArray* FName::GNames = nullptr;
 FUObjectArray* UObject::GObjects = nullptr;
-//---------------------------------------------------------------------------
-bool FWeakObjectPtr::IsValid() const
-{
-	if (ObjectSerialNumber == 0)
-	{
-		return false;
-	}
-	if (ObjectIndex < 0)
-	{
-		return false;
-	}
-	if (!UObject::GetGlobalObjects().IsValidIndex(ObjectIndex))
-	{
-		return false;
-	}
-	return UObject::GetGlobalObjects()[ObjectIndex] != nullptr;
-}
-//---------------------------------------------------------------------------
-UObject* FWeakObjectPtr::Get() const
-{
-	if (IsValid())
-	{
-		return UObject::GetGlobalObjects()[ObjectIndex];
-	}
-	return nullptr;
-}
-//---------------------------------------------------------------------------)";
+UWorld** UWorld::GWorld = nullptr;)";
 	}
 };
 

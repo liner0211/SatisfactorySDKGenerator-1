@@ -1,9 +1,6 @@
-#include "../IGenerator.hpp"
-#include "GenericTypes.hpp"
-#include "ObjectsStore.hpp"
-#include "NamesStore.hpp"
 #include "NameValidator.hpp"
-
+#include "NamesStore.hpp"
+#include "ObjectsStore.hpp"
 #include "EngineClasses.hpp"
 
 //---------------------------------------------------------------------------
@@ -69,7 +66,8 @@ std::vector<std::string> UEEnum::GetNames() const
 
 	for (auto i = 0; i < names.Num(); ++i)
 	{
-		buffer.push_back(NamesStore().GetById(names[i].ComparisonIndex));
+		//buffer.push_back(NamesStore().GetById(names[i].ComparisonIndex));
+		buffer.push_back(SimplifyEnumName(NamesStore().GetById(names[i].Key.ComparisonIndex)));
 	}
 
 	return buffer;
@@ -173,6 +171,12 @@ UEClass UEProperty::StaticClass()
 	static auto c = ObjectsStore().FindClass("Class CoreUObject.Property");
 	return c;
 }
+//---------------------------------------------------------------------------
+//unsigned long UEProperty::GetBitMask() const
+//{
+//	unsigned long bm = static_cast<UBoolProperty*>(object)->BitMask;
+//	return *(WORD*)((ULONG_PTR)&bm + 2);
+//}
 //---------------------------------------------------------------------------
 //UENumericProperty
 //---------------------------------------------------------------------------
@@ -477,6 +481,19 @@ UEClass UEAssetClassProperty::StaticClass()
 	return c;
 }
 //---------------------------------------------------------------------------
+//UESoftObjectProperty
+//---------------------------------------------------------------------------
+UEProperty::Info UESoftObjectProperty::GetInfo() const
+{
+	return Info::Create(PropertyType::Container, sizeof(FSoftObjectPtr), false, "TSoftObjectPtr<class " + MakeValidName(GetPropertyClass().GetNameCPP()) + ">");
+}
+//---------------------------------------------------------------------------
+UEClass UESoftObjectProperty::StaticClass()
+{
+	static auto c = ObjectsStore().FindClass("Class CoreUObject.SoftObjectProperty");
+	return c;
+}
+//---------------------------------------------------------------------------
 //UENameProperty
 //---------------------------------------------------------------------------
 UEProperty::Info UENameProperty::GetInfo() const
@@ -512,7 +529,7 @@ UEClass UEStructProperty::StaticClass()
 //---------------------------------------------------------------------------
 UEProperty::Info UEStrProperty::GetInfo() const
 {
-	return Info::Create(PropertyType::PredefinedStruct, sizeof(FString), true, "struct FString");
+	return Info::Create(PropertyType::PredefinedStruct, sizeof(FString), true, "class FString");
 }
 //---------------------------------------------------------------------------
 UEClass UEStrProperty::StaticClass()
@@ -550,7 +567,7 @@ UEProperty::Info UEArrayProperty::GetInfo() const
 
 		return Info::Create(PropertyType::Container, sizeof(TArray<void*>), false, "TArray<" + generator->GetOverrideType(inner.CppType) + ">");
 	}
-	
+
 	return { PropertyType::Unknown };
 }
 //---------------------------------------------------------------------------
@@ -649,5 +666,14 @@ UEClass UEEnumProperty::StaticClass()
 {
 	static auto c = ObjectsStore().FindClass("Class CoreUObject.EnumProperty");
 	return c;
+}
+//---------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------
+//GetCustomPropertyInfo for game depended properties.
+//---------------------------------------------------------------------------
+bool UEProperty::GetCustomPropertyInfo(const UEProperty& property, Info &info)
+{
+	return false;
 }
 //---------------------------------------------------------------------------
